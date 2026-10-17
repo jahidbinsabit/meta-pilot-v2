@@ -1,0 +1,13 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/daily-credits",
+      "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/cleanup-uploads",
+      "schedule": "0 1 * * *"
+    }
+  ]
+}
+
