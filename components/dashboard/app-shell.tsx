@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Sidebar } from '@/components/dashboard/sidebar';
@@ -40,11 +41,12 @@ export function AppShell({
   return (
     <CreditsProvider initialCredits={user.credits}>
       <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        {/* Desktop sidebar — CSS width transition instead of framer-motion
-            so the animation library stays out of the critical shell bundle. */}
-        <aside
-          style={{ width: collapsed ? 64 : 240 }}
-          className="hidden shrink-0 flex-col border-r border-border bg-sidebar transition-[width] duration-200 ease-out lg:flex"
+        {/* Desktop sidebar */}
+        <motion.aside
+          initial={false}
+          animate={{ width: collapsed ? 64 : 240 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+          className="hidden shrink-0 flex-col border-r border-border bg-sidebar lg:flex"
         >
           <Sidebar
             collapsed={collapsed}
@@ -53,13 +55,15 @@ export function AppShell({
             siteName={siteName}
             logoUrl={logoUrl}
           />
-        </aside>
+        </motion.aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar user={user} onMenu={() => setMobileOpen(true)} />
           <NotificationBanner notifications={notifications} />
           <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+            <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+              {children}
+            </div>
           </main>
         </div>
 
