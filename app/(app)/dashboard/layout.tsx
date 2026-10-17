@@ -8,8 +8,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const session = await getServerSession();
   if (!session?.user?.email) redirect('/login');
 
-  const rawTierForNotifications = 'FREE'; // refined below once memberships are known
-
   const [user, siteSettings, preNotifications] = await Promise.all([
     prisma.user.findUnique({
       where: { email: session.user.email },
