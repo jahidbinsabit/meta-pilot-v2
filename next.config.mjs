@@ -40,7 +40,7 @@ const nextConfig = {
   },
   experimental: {
     serverComponentsExternalPackages: ['sharp'],
-    optimizePackageImports: ['lucide-react', '@tanstack/react-query', 'date-fns'],
+    optimizePackageImports: ['lucide-react', '@tanstack/react-query'],
     serverActions: { bodySizeLimit: '25mb' },
   },
   async headers() {
