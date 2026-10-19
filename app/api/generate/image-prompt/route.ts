@@ -44,9 +44,14 @@ async function toBase64(img: PromptImage): Promise<{ data: string; mime: string 
   if (img.key) {
     buf = await downloadFile(img.key);
   } else if (img.previewUrl) {
-    const res = await fetch(img.previewUrl);
-    if (!res.ok) throw new Error('preview_fetch_failed');
-    buf = Buffer.from(await res.arrayBuffer());
+    const dataUrlMatch = /^data:([^;]+);base64,(.+)$/s.exec(img.previewUrl);
+    if (dataUrlMatch) {
+      buf = Buffer.from(dataUrlMatch[2], 'base64');
+    } else {
+      const res = await fetch(img.previewUrl);
+      if (!res.ok) throw new Error('preview_fetch_failed');
+      buf = Buffer.from(await res.arrayBuffer());
+    }
   } else {
     throw new Error('image_reference_required');
   }
@@ -68,6 +73,9 @@ export async function POST(req: Request) {
 
     if (!Array.isArray(images) || images.length === 0) {
       return NextResponse.json({ error: 'images_required' }, { status: 400 });
+    }
+    if (images.length > 20) {
+      return NextResponse.json({ error: 'too_many_images', max: 20 }, { status: 400 });
     }
     if (!style) {
       return NextResponse.json({ error: 'style_required' }, { status: 400 });
@@ -116,7 +124,7 @@ export async function POST(req: Request) {
         userId: user.id,
         toolSlug: TOOL_SLUG,
         status: 'PROCESSING',
-        inputFileUrls: images.map((i) => i.previewUrl || i.key || ''),
+        inputFileUrls: images.map((i) => i.key || i.fileName || ''),
         creditsCharged: total,
         outputData: {
           style: preset.slug,
@@ -127,7 +135,6 @@ export async function POST(req: Request) {
     });
 
     const systemPrompt = buildImagePromptSystemInstruction(preset.systemInstruction);
-    const strictSystem = buildImagePromptSystemInstruction(preset.systemInstruction, true);
     const userPrompt = buildImagePromptUserPrompt({});
 
     const results: any[] = [];
@@ -153,7 +160,9 @@ export async function POST(req: Request) {
         const { data, mime } = await toBase64(img);
         const imageUrl = `data:${mime};base64,${data}`;
 
-        let result = (
+        // Single pass: base.ts salvages truncated output automatically,
+        // so no second "strict" pass is needed.
+        const result = (
           await generateWithAI({
             toolSlug: TOOL_SLUG,
             systemPrompt,
@@ -161,27 +170,11 @@ export async function POST(req: Request) {
             imageUrls: [imageUrl],
             responseSchema: ImagePromptSchema,
             responseSchemaName: 'ImagePrompt',
-            maxTokens: 8192,
+            maxTokens: 4000,
             temperature: 0.7,
             userId: user.id,
           })
         ).parsed as ImagePromptResult | null;
-
-        if (!result) {
-          result = (
-            await generateWithAI({
-              toolSlug: TOOL_SLUG,
-              systemPrompt: strictSystem,
-              userPrompt: buildImagePromptUserPrompt({ strict: true }),
-              imageUrls: [imageUrl],
-              responseSchema: ImagePromptSchema,
-              responseSchemaName: 'ImagePrompt',
-              maxTokens: 8192,
-              temperature: 0.2,
-              userId: user.id,
-            })
-          ).parsed as ImagePromptResult | null;
-        }
 
         if (!result) throw new Error('malformed_response');
 

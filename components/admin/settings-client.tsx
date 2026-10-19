@@ -24,6 +24,8 @@ type SiteSettings = {
   gaMeasurementId?: string | null;
   gscVerification?: string | null;
   userApiKeyRequired?: boolean;
+  signupCredits?: number | null;
+  unlimitedMode?: boolean;
   apifyApiToken?: string | null;
   apifyActorId?: string | null;
 };
@@ -49,6 +51,8 @@ export function SettingsClient({
     gaMeasurementId: initialSettings?.gaMeasurementId ?? '',
     gscVerification: initialSettings?.gscVerification ?? '',
     userApiKeyRequired: initialSettings?.userApiKeyRequired ?? false,
+    signupCredits: initialSettings?.signupCredits ?? 20,
+    unlimitedMode: initialSettings?.unlimitedMode ?? false,
     apifyApiToken: initialSettings?.apifyApiToken ?? '',
     apifyActorId: initialSettings?.apifyActorId && initialSettings.apifyActorId !== 'KPyKQZuofuTIxI4yZ' ? initialSettings.apifyActorId : 'Ea82wcTpNYzTRV7A3',
   });
@@ -321,6 +325,27 @@ export function SettingsClient({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
+              <Label htmlFor="signupCredits">Signup credits (new account bonus)</Label>
+              <Input
+                id="signupCredits"
+                type="number"
+                min={0}
+                max={100000}
+                value={settings.signupCredits ?? 20}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    signupCredits: Math.max(0, parseInt(e.target.value || '0', 10) || 0),
+                  }))
+                }
+              />
+              <p className="text-2xs text-muted-foreground">
+                Credits given to a new user when they create an account.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
               <Label htmlFor="logoUrl">Project Logo URL</Label>
               <div className="flex gap-2 items-center">
                 <Input
@@ -438,6 +463,15 @@ export function SettingsClient({
             onChange={(checked) => {
               setSettings((s) => ({ ...s, userApiKeyRequired: checked }));
               saveMutation.mutate({ ...settings, userApiKeyRequired: checked });
+            }}
+          />
+          <Toggle
+            label="Unlimited generation mode"
+            description="When enabled, everyone can generate without spending credits — balances show as Unlimited and no deductions happen. Turn off to return to normal credit usage."
+            checked={Boolean(settings.unlimitedMode)}
+            onChange={(checked) => {
+              setSettings((s) => ({ ...s, unlimitedMode: checked }));
+              saveMutation.mutate({ ...settings, unlimitedMode: checked });
             }}
           />
           <Toggle

@@ -33,10 +33,23 @@ export class GeminiAdapter extends BaseAdapter {
     completionTokens: number;
     finishReason?: string;
   }> {
+    // Use gemini-3.5-flash-lite (original behavior).
     let model = req.model || this.modelDefault || 'gemini-3.5-flash-lite';
     if (model === 'gemini-2.0-flash' || model === 'gemini-3.8-flash') {
       model = 'gemini-3.5-flash-lite';
     }
+    return this.doGenerateWithModel(req, model);
+  }
+
+  private async doGenerateWithModel(
+    req: AiRequest,
+    model: string,
+  ): Promise<{
+    text: string;
+    promptTokens: number;
+    completionTokens: number;
+    finishReason?: string;
+  }> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
 
     const parts: any[] = [];
@@ -70,6 +83,9 @@ export class GeminiAdapter extends BaseAdapter {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      // Don't hang forever if the provider stalls; the retry loop treats
+      // timeouts as retryable.
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!res.ok) {

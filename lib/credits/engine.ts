@@ -9,6 +9,7 @@
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import { InsufficientCreditsError } from '@/lib/credits/errors';
+import { getSiteSettings } from '@/lib/site-settings';
 
 export interface CreditResult {
   ok: boolean;
@@ -76,6 +77,9 @@ export async function addCredits(
 /**
  * Deduct credits. Throws `InsufficientCreditsError` when the balance is too
  * low — route handlers catch it and return a 402 / upgrade-CTA response.
+ *
+ * When admin enables "Unlimited mode" in Site settings, deduction is skipped
+ * entirely (no balance change, no transaction row) and the call succeeds.
  */
 export async function deductCredits(
   userId: string,
@@ -87,22 +91,40 @@ export async function deductCredits(
     return { ok: false, balance: 0, error: 'invalid_amount' };
   }
 
+  // Unlimited mode: admin toggle — everyone generates free, no deduction.
+  try {
+    const settings = await getSiteSettings();
+    if (settings?.unlimitedMode === true) {
+      const wallet = await prisma.creditWallet.findUnique({ where: { userId } });
+      return { ok: true, balance: wallet?.balance ?? 0 };
+    }
+  } catch {
+    // If settings can't be read, fall through to normal deduction.
+  }
+
   return prisma.$transaction(async (tx) => {
-    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
-    const balance = wallet?.balance ?? 0;
-    if (balance < amount) {
+    // Atomic conditional decrement: prevents double-spend race where two
+    // concurrent requests both read the same balance and both succeed.
+    const updated = await tx.creditWallet.updateMany({
+      where: { userId, balance: { gte: amount } },
+      data: { balance: { decrement: amount } },
+    });
+    if (updated.count === 0) {
+      const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+      const balance = wallet?.balance ?? 0;
       throw new InsufficientCreditsError(
         `Insufficient credits: have ${balance}, need ${amount}`,
         balance,
         amount,
       );
     }
-    await tx.creditWallet.update({ where: { userId }, data: { balance: balance - amount } });
-    await syncUserCredits(tx, userId, balance - amount);
+    const wallet = await tx.creditWallet.findUnique({ where: { userId } });
+    const newBalance = wallet?.balance ?? 0;
+    await syncUserCredits(tx, userId, newBalance);
     const t = await tx.creditTransaction.create({
       data: { userId, amount: -amount, type: type as any, metadata: metadata as any },
     });
-    return { ok: true, balance: balance - amount, transactionId: t.id };
+    return { ok: true, balance: newBalance, transactionId: t.id };
   });
 }
 

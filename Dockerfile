@@ -12,12 +12,15 @@ FROM node:20-alpine AS base
 
 WORKDIR /app
 
-# Install libc / native deps required by Prisma's query engine on musl.
-RUN apk add --no-cache libc6-compat
+# Install libc / OpenSSL required by Prisma's engines on musl.
+RUN apk add --no-cache libc6-compat openssl
 
-# 1. Dependencies — copy manifests first for layer caching.
+# 1. Dependencies — copy manifests + prisma schema first for layer caching.
+# (package.json's postinstall runs `prisma generate`, so the schema must exist
+# before `npm ci`.)
 FROM base AS deps
 COPY package.json package-lock.json* ./
+COPY prisma ./prisma
 RUN npm ci --include=dev --legacy-peer-deps
 
 # 2. Prisma — generate the client against the final schema.
@@ -57,6 +60,14 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 COPY --from=prisma /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./package.json
+# tsconfig needed for `npm run db:seed` (ts-node + tsconfig-paths @/* aliases).
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+# lib/ sources needed for `npm run db:seed` (seed imports @/lib/*).
+COPY --from=builder /app/lib ./lib
+
+# Writable uploads dir for USE_LOCAL_STORAGE mode (backed by a named volume
+# in docker-compose.prod.yml so files survive container recreates).
+RUN mkdir -p /app/public/uploads && chown nextjs:nextjs /app/public/uploads
 
 USER nextjs
 

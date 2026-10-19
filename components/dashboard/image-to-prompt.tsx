@@ -65,7 +65,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   const [dropzoneExpanded, setDropzoneExpanded] = React.useState(true);
 
   const toast = useToast();
-  const { credits } = useCredits();
+  const { credits, unlimited } = useCredits();
   const queryClient = useQueryClient();
 
   const { data: styles } = useQuery({
@@ -106,9 +106,16 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
   const [regeneratingIds, setRegeneratingIds] = React.useState<Set<string>>(new Set());
 
   async function startStreamingGeneration() {
-    const ready = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
+    // Only send images that don't already have results — prevents double-charging
+    // when user clicks Generate multiple times.
+    const ready = files.filter(
+      (f) =>
+        f.status === 'done' &&
+        (f.previewUrl || f.dataUrl) &&
+        !results.find((r) => r.id === f.id)
+    );
     if (ready.length === 0) {
-      toast({ title: 'No images ready', description: 'Upload images first', variant: 'error' });
+      toast({ title: 'No new images to process', description: 'All uploaded images already have prompts. Upload new images or remove existing results to regenerate.', variant: 'info' });
       return;
     }
     if (!style) {
@@ -117,7 +124,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
     }
 
     const totalCost = ready.length * costPerImage;
-    if (credits < totalCost) {
+    if (!unlimited && credits < totalCost) {
       toast({
         title: 'Insufficient credits',
         description: `You need ${totalCost} credits but have ${credits}.`,
@@ -211,13 +218,16 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         }
       }
     } catch (error: any) {
-      setIsGenerating(false);
-      setGeneratingIds(new Set());
       toast({ 
         title: 'Generation failed', 
         description: error.message || 'Unknown error', 
         variant: 'error' 
       });
+    } finally {
+      // Always reset loading state — the stream may end without a 'done'
+      // event (e.g. server timeout), which would otherwise hang the UI forever.
+      setIsGenerating(false);
+      setGeneratingIds(new Set());
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     }
   }
@@ -229,7 +239,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
       return;
     }
     
-    if (credits < costPerImage) {
+    if (!unlimited && credits < costPerImage) {
       toast({ title: 'Insufficient credits', description: `You need ${costPerImage} credit${costPerImage === 1 ? '' : 's'} to regenerate`, variant: 'error' });
       return;
     }
@@ -302,24 +312,31 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
         }
       }
     } catch (error: any) {
-      setRegeneratingIds(prev => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
       toast({ 
         title: 'Regeneration failed', 
         description: error.message || 'Unknown error', 
         variant: 'error' 
       });
+    } finally {
+      // Always clear the regenerating state — stream may end without 'done'.
+      setRegeneratingIds(prev => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ['credits'] });
     }
   }
 
-  const readyFiles = files.filter((f) => f.status === 'done' && (f.previewUrl || f.dataUrl));
+  const readyFiles = files.filter(
+    (f) =>
+      f.status === 'done' &&
+      (f.previewUrl || f.dataUrl) &&
+      !results.find((r) => r.id === f.id)
+  );
   const totalCost = readyFiles.length * costPerImage;
   const canGenerate =
-    readyFiles.length > 0 && !isGenerating && credits >= totalCost && !!style;
+    readyFiles.length > 0 && !isGenerating && (unlimited || credits >= totalCost) && !!style;
 
   async function copyOne(id: string, text: string) {
     await navigator.clipboard.writeText(text);
@@ -482,7 +499,7 @@ export function ImageToPrompt({ batchLimit, costPerImage, userId, activeTab, onT
               </div>
             )}
 
-            {files.length > 0 && credits < totalCost && (
+            {files.length > 0 && !unlimited && credits < totalCost && (
               <p className="flex items-center gap-1.5 text-xs text-amber-400">
                 <AlertCircle className="h-3.5 w-3.5" />
                 You need {totalCost} credits but have {credits}. Top up in Billing to continue.
